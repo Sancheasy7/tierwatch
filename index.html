@@ -74,10 +74,11 @@
   var DEFAULT_GENRES = ['Drama','Comedy','Sci-Fi','Fantasy','Crime','Reality','Animation','Documentary','Horror','Action'];
 
   var state = {
-    user: null, users: [], shows: [], genres: [], ranking: {},
+    user: null, users: [], shows: [], genres: [], allGenres: [], dbGenres: [],
+    hiddenGenres: [], ranking: {},
     friendRanking: {}, tab: 'mytiers', genre: null, compareFriend: null,
     sheetShowId: null, loading: true, addGenreMode: false,
-    profileSheetOpen: false, avatarUrl: null
+    profileSheetOpen: false, avatarUrl: null, manageGenresOpen: false
   };
 
   var root = document.getElementById('tw-root');
@@ -95,9 +96,34 @@
     return out.toUpperCase();
   }
 
+  function loadHiddenGenres(){
+    try{
+      var raw = localStorage.getItem('tw_hidden_genres');
+      state.hiddenGenres = raw ? JSON.parse(raw) : [];
+    }catch(e){ state.hiddenGenres = []; }
+  }
+  function saveHiddenGenres(){
+    try{ localStorage.setItem('tw_hidden_genres', JSON.stringify(state.hiddenGenres)); }catch(e){}
+  }
+
+  function genreCount(g){
+    return state.shows.filter(function(s){ return s.genre === g; }).length;
+  }
+
+  function computeGenres(){
+    var set = {};
+    DEFAULT_GENRES.forEach(function(g){ set[g] = true; });
+    state.shows.forEach(function(s){ set[s.genre] = true; });
+    (state.dbGenres || []).forEach(function(g){ set[g] = true; });
+    state.allGenres = Object.keys(set).sort();
+    state.genres = state.allGenres.filter(function(g){ return state.hiddenGenres.indexOf(g) === -1; });
+    if(!state.genre || state.genres.indexOf(state.genre) === -1) state.genre = state.genres[0] || null;
+  }
+
   async function init(){
     renderLoading();
     sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    loadHiddenGenres();
     var uname = localStorage.getItem('tw_username');
     if(!uname){ state.loading = false; renderOnboarding(); return; }
     state.user = uname;
@@ -121,12 +147,12 @@
       });
     }catch(e){ state.shows = state.shows || []; }
 
-    var genreSet = {};
-    DEFAULT_GENRES.forEach(function(g){ genreSet[g] = true; });
-    state.shows.forEach(function(sh){ genreSet[sh.genre] = true; });
-    state.genres = Object.keys(genreSet);
-    if(!state.genre || state.genres.indexOf(state.genre) === -1) state.genre = state.genres[0];
+    try{
+      var g = await sb.from('genres').select('name');
+      state.dbGenres = (g.data || []).map(function(r){ return r.name; });
+    }catch(e){ state.dbGenres = state.dbGenres || []; }
 
+    computeGenres();
     try{
       var r = await sb.from('rankings').select('show_id,tier').eq('user_name', state.user);
       var map = {};
@@ -287,10 +313,84 @@
       delete next2[showId];
       state.ranking = next2;
       state.sheetShowId = null;
+      computeGenres();
       render();
     }catch(e){
       alert("Couldn't delete. Check your connection and try again.");
     }
+  }
+
+  function openManageGenres(){
+    state.manageGenresOpen = true;
+    render();
+  }
+  function closeManageGenres(){
+    state.manageGenresOpen = false;
+    render();
+  }
+  function toggleHideGenre(g){
+    var idx = state.hiddenGenres.indexOf(g);
+    if(idx === -1) state.hiddenGenres.push(g); else state.hiddenGenres.splice(idx, 1);
+    saveHiddenGenres();
+    computeGenres();
+    render();
+  }
+  async function removeEmptyGenre(g){
+    if(genreCount(g) > 0) return;
+    try{ await sb.from('genres').delete().eq('name', g); }catch(e){}
+    if(state.hiddenGenres.indexOf(g) === -1){ state.hiddenGenres.push(g); saveHiddenGenres(); }
+    state.dbGenres = (state.dbGenres || []).filter(function(x){ return x !== g; });
+    computeGenres();
+    render();
+  }
+  async function addNewGenreLabel(){
+    var input = document.getElementById('tw-manage-genre-input');
+    var errEl = document.getElementById('tw-manage-genre-error');
+    var name = input.value.trim();
+    if(!name){ if(errEl) errEl.textContent = 'Enter a genre name first.'; return; }
+    if(errEl) errEl.textContent = '';
+    try{
+      await sb.from('genres').insert({name: name, created_by: state.user});
+    }catch(e){}
+    if(state.dbGenres.indexOf(name) === -1) state.dbGenres = state.dbGenres.concat([name]);
+    var idx = state.hiddenGenres.indexOf(name);
+    if(idx !== -1){ state.hiddenGenres.splice(idx, 1); saveHiddenGenres(); }
+    computeGenres();
+    render();
+  }
+
+  function manageGenresSheet(){
+    if(!state.manageGenresOpen) return '';
+    var rows = state.allGenres.map(function(g){
+      var count = genreCount(g);
+      var hidden = state.hiddenGenres.indexOf(g) !== -1;
+      var actionBtn;
+      if(count === 0){
+        actionBtn = '<button data-action="removeemptygenre" data-genre="' + esc(g) + '" style="background:none;border:none;color:var(--rose);font-size:13px;font-weight:500;">Remove</button>';
+      } else {
+        actionBtn = '<button data-action="togglehidegenre" data-genre="' + esc(g) + '" style="background:none;border:none;color:var(--text-muted);font-size:13px;font-weight:500;">' + (hidden ? 'Show' : 'Hide') + '</button>';
+      }
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">' +
+          '<div>' +
+            '<div style="font-size:14px;' + (hidden ? 'color:var(--text-muted);' : '') + '">' + esc(g) + (hidden ? ' (hidden)' : '') + '</div>' +
+            '<div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">' + count + ' show' + (count===1?'':'s') + '</div>' +
+          '</div>' +
+          actionBtn +
+        '</div>';
+    }).join('');
+    return '<div data-action="closemanage" style="position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;z-index:6;">' +
+        '<div data-action="stop" style="background:var(--surface);width:100%;max-width:480px;margin:0 auto;border-radius:16px 16px 0 0;padding:20px 16px calc(22px + env(safe-area-inset-bottom));border-top:1px solid var(--border);max-height:80vh;overflow-y:auto;">' +
+          '<div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px;"></div>' +
+          '<div style="font-family:var(--font-display);font-size:22px;margin-bottom:4px;">MANAGE GENRES</div>' +
+          '<div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Hide clears up clutter just for you. Empty genres can be removed for everyone.</div>' +
+          '<div style="display:flex;gap:8px;margin-bottom:14px;">' +
+            '<input id="tw-manage-genre-input" placeholder="New genre name" maxlength="24" style="flex:1;" />' +
+            '<button data-action="addnewgenre" style="flex:none;background:var(--gold);color:var(--gold-text);border:none;border-radius:8px;padding:0 16px;font-weight:600;font-size:14px;">Add</button>' +
+          '</div>' +
+          '<div id="tw-manage-genre-error" style="color:var(--rose);font-size:12px;margin-bottom:8px;"></div>' +
+          '<div>' + rows + '</div>' +
+        '</div>' +
+      '</div>';
   }
 
   function toggleNewGenre(){
@@ -318,7 +418,7 @@
       if(res.error){ err.textContent = "Couldn't save (" + res.error.message + "). Try again."; return; }
       var show = {id: res.data.id, title: res.data.title, genre: res.data.genre, poster: res.data.poster, addedBy: res.data.added_by};
       state.shows = state.shows.concat([show]);
-      if(state.genres.indexOf(genre) === -1) state.genres = state.genres.concat([genre]);
+      computeGenres();
       state.genre = genre;
       state.addGenreMode = false;
       state.tab = 'mytiers';
@@ -360,11 +460,12 @@
   }
 
   function genreChips(){
-    var html = '<div style="display:flex;gap:8px;overflow-x:auto;padding:14px 16px;border-bottom:1px solid var(--border);">';
+    var html = '<div id="tw-genre-scroll" style="display:flex;gap:8px;overflow-x:auto;padding:14px 16px;border-bottom:1px solid var(--border);">';
     state.genres.forEach(function(g){
       var active = g === state.genre;
       html += '<button data-action="setgenre" data-genre="' + esc(g) + '" style="flex:none;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;border:1px solid ' + (active ? 'var(--gold)' : 'var(--border)') + ';background:' + (active ? 'var(--gold)' : 'var(--surface2)') + ';color:' + (active ? 'var(--gold-text)' : 'var(--text)') + ';white-space:nowrap;">' + esc(g) + '</button>';
     });
+    html += '<button data-action="openmanage" style="flex:none;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;border:1px dashed var(--border);background:none;color:var(--text-muted);white-space:nowrap;">Manage</button>';
     html += '</div>';
     return html;
   }
@@ -578,6 +679,8 @@
 
   function render(){
     if(state.loading){ renderLoading(); return; }
+    var prevScrollEl = document.getElementById('tw-genre-scroll');
+    var prevScroll = prevScrollEl ? prevScrollEl.scrollLeft : 0;
     var body;
     if(state.tab === 'compare') body = renderCompare();
     else if(state.tab === 'add') body = renderAdd();
@@ -590,7 +693,11 @@
         bottomNav() +
         sheet() +
         profileSheet() +
+        manageGenresSheet() +
       '</div>';
+
+    var newScrollEl = document.getElementById('tw-genre-scroll');
+    if(newScrollEl) newScrollEl.scrollLeft = prevScroll;
 
     var addForm = document.getElementById('tw-add-form');
     if(addForm){
@@ -620,6 +727,11 @@
     else if(action === 'closeprofile'){ closeProfile(); }
     else if(action === 'pickphoto'){ pickPhoto(); }
     else if(action === 'deleteshow'){ deleteShow(el.getAttribute('data-showid')); }
+    else if(action === 'openmanage'){ openManageGenres(); }
+    else if(action === 'closemanage'){ closeManageGenres(); }
+    else if(action === 'togglehidegenre'){ toggleHideGenre(el.getAttribute('data-genre')); }
+    else if(action === 'removeemptygenre'){ removeEmptyGenre(el.getAttribute('data-genre')); }
+    else if(action === 'addnewgenre'){ addNewGenreLabel(); }
   });
 
   root.addEventListener('change', function(ev){
