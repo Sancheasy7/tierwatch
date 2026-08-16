@@ -306,6 +306,25 @@
     render();
   }
 
+  async function editShow(showId){
+    var show = state.shows.filter(function(s){ return s.id === showId; })[0];
+    if(!show) return;
+    var newTitle = prompt('Edit title', show.title);
+    if(newTitle === null) return;
+    newTitle = newTitle.trim();
+    if(!newTitle || newTitle === show.title) return;
+    try{
+      var res = await sb.from('shows').update({title: newTitle}).eq('id', showId);
+      if(res.error){ alert("Couldn't save (" + res.error.message + ")."); return; }
+      state.shows = state.shows.map(function(s){
+        return s.id === showId ? Object.assign({}, s, {title: newTitle}) : s;
+      });
+      render();
+    }catch(e){
+      alert("Couldn't save. Check your connection and try again.");
+    }
+  }
+
   async function deleteShow(showId){
     if(!confirm("Delete this show? If nobody else has ranked it, it's removed for everyone. If someone else has, it'll only be removed from your list.")) return;
     try{
@@ -475,11 +494,12 @@
     return out;
   }
 
-  function genreChips(list, current, action, showManage){
+  function genreChips(list, current, action, showManage, countFn){
     var html = '<div id="tw-genre-scroll" style="display:flex;gap:8px;overflow-x:auto;padding:14px 16px;border-bottom:1px solid var(--border);">';
     list.forEach(function(g){
       var active = g === current;
-      html += '<button data-action="' + action + '" data-genre="' + esc(g) + '" style="flex:none;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;border:1px solid ' + (active ? 'var(--gold)' : 'var(--border)') + ';background:' + (active ? 'var(--gold)' : 'var(--surface2)') + ';color:' + (active ? 'var(--gold-text)' : 'var(--text)') + ';white-space:nowrap;">' + esc(g) + '</button>';
+      var label = esc(g) + (countFn ? ' (' + countFn(g) + ')' : '');
+      html += '<button data-action="' + action + '" data-genre="' + esc(g) + '" style="flex:none;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;border:1px solid ' + (active ? 'var(--gold)' : 'var(--border)') + ';background:' + (active ? 'var(--gold)' : 'var(--surface2)') + ';color:' + (active ? 'var(--gold-text)' : 'var(--text)') + ';white-space:nowrap;">' + label + '</button>';
     });
     if(showManage){
       html += '<button data-action="openmanage" style="flex:none;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;border:1px dashed var(--border);background:none;color:var(--text-muted);white-space:nowrap;">Manage</button>';
@@ -488,15 +508,44 @@
     return html;
   }
 
+  function myGenreCount(g){
+    return state.shows.filter(function(s){ return s.genre === g && (s.addedBy === state.user || state.ranking[s.id]); }).length;
+  }
+
+  function compareGenreCount(g){
+    return state.shows.filter(function(s){ return s.genre === g && (s.addedBy === state.compareFriend || state.friendRanking[s.id]); }).length;
+  }
+
+  async function shareApp(){
+    var url = window.location.href;
+    var shareData = {title: 'TierWatch', text: 'Rank shows with me on TierWatch', url: url};
+    try{
+      if(navigator.share){
+        await navigator.share(shareData);
+        return;
+      }
+    }catch(e){ return; }
+    try{
+      await navigator.clipboard.writeText(url);
+      alert('Link copied! Send it to your friends.');
+    }catch(e){
+      prompt('Copy this link:', url);
+    }
+  }
+
   function header(){
     var avatarInner = state.avatarUrl
       ? '<img src="' + esc(state.avatarUrl) + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;" onerror="this.style.display=\'none\'" />'
       : esc(initials(state.user));
+    var shareSvg = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 10.6l6.8-3.2M8.6 13.4l6.8 3.2"/></svg>';
     return '<div style="display:flex;align-items:center;justify-content:space-between;padding:18px 20px 0;">' +
         '<div>' +
           '<div style="font-family:var(--font-display);font-size:30px;letter-spacing:1px;line-height:1;">TIERWATCH</div>' +
         '</div>' +
-        '<button data-action="openprofile" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:999px;width:36px;height:36px;font-size:13px;font-weight:600;font-family:var(--font-mono);overflow:hidden;padding:0;">' + avatarInner + '</button>' +
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+          '<button data-action="shareapp" aria-label="Share app" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:999px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;">' + shareSvg + '</button>' +
+          '<button data-action="openprofile" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:999px;width:36px;height:36px;font-size:13px;font-weight:600;font-family:var(--font-mono);overflow:hidden;padding:0;">' + avatarInner + '</button>' +
+        '</div>' +
       '</div>' +
       '<div class="tw-perf" style="margin:12px 0 0;">' + dots() + '</div>';
   }
@@ -533,6 +582,7 @@
     var dataAttr = opts.clickable ? ' data-action="opensheet" data-showid="' + esc(show.id) + '"' : '';
     return '<div' + dataAttr + ' style="background:var(--surface2);border:1px solid var(--border);border-left:4px solid ' + borderColor + ';border-radius:6px;padding:9px 11px;min-width:0;' + (opts.clickable ? 'cursor:pointer;' : '') + '">' +
         '<div style="font-size:13.5px;font-weight:500;line-height:1.3;word-break:break-word;">' + esc(show.title) + '</div>' +
+        '<div style="font-family:var(--font-mono);font-size:9.5px;color:var(--text-muted);margin-top:2px;">by ' + esc(show.addedBy || '?') + '</div>' +
         extra +
       '</div>';
   }
@@ -579,7 +629,7 @@
           '<button data-action="settab" data-tab="add" style="width:100%;background:var(--surface2);border:1px dashed var(--border);color:var(--text);border-radius:8px;padding:11px;font-weight:500;font-size:13.5px;">+ Add another ' + esc(state.genre) + ' show</button>' +
         '</div>';
     }
-    return genreChips(state.genres, state.genre, 'setgenre', true) + body;
+    return genreChips(state.genres, state.genre, 'setgenre', true, myGenreCount) + body;
   }
 
   function renderCompare(){
@@ -607,7 +657,7 @@
     var showsInGenre = state.shows.filter(function(s){
       return s.genre === state.compareGenre && (s.addedBy === state.compareFriend || state.friendRanking[s.id]);
     });
-    var body = genreChips(state.compareGenres, state.compareGenre, 'setcomparegenre', false);
+    var body = genreChips(state.compareGenres, state.compareGenre, 'setcomparegenre', false, compareGenreCount);
     if(showsInGenre.length === 0){
       body += '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">No ' + esc(state.compareGenre) + ' shows here yet.</div>';
     } else {
@@ -669,8 +719,8 @@
     var plusSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>';
     return '<div style="display:flex;border-top:1px solid var(--border);background:var(--surface);position:sticky;bottom:0;padding-bottom:env(safe-area-inset-bottom);">' +
         item('mytiers', 'MY TIERS', listSvg) +
-        item('compare', 'FRIENDS', compareSvg) +
         item('add', 'ADD', plusSvg) +
+        item('compare', 'FRIENDS', compareSvg) +
       '</div>';
   }
 
@@ -691,13 +741,14 @@
         '</button>';
     }).join('');
     var removeRow = current ? '<button data-action="settier" data-showid="' + esc(show.id) + '" data-tier="" style="width:100%;background:none;border:1px dashed var(--border);border-radius:8px;padding:10px;color:var(--text-muted);font-size:13px;margin-top:2px;">Remove from tier list</button>' : '';
-    var deleteRow = '<button data-action="deleteshow" data-showid="' + esc(show.id) + '" style="width:100%;background:none;border:none;padding:10px;color:var(--rose);font-size:13px;margin-top:6px;font-weight:500;">Delete show</button>';
+    var editRow = '<button data-action="editshow" data-showid="' + esc(show.id) + '" style="width:100%;background:none;border:none;padding:10px;color:var(--text-muted);font-size:13px;margin-top:6px;font-weight:500;">Edit title</button>';
+    var deleteRow = '<button data-action="deleteshow" data-showid="' + esc(show.id) + '" style="width:100%;background:none;border:none;padding:10px;color:var(--rose);font-size:13px;font-weight:500;">Delete show</button>';
     return '<div data-action="closesheet" style="position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;z-index:5;">' +
         '<div data-action="stop" style="background:var(--surface);width:100%;max-width:480px;margin:0 auto;border-radius:16px 16px 0 0;padding:18px 16px 22px;border-top:1px solid var(--border);">' +
           '<div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 14px;"></div>' +
           '<div style="font-size:15px;font-weight:600;margin-bottom:2px;">' + esc(show.title) + '</div>' +
           '<div style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);margin-bottom:14px;">' + esc(show.genre.toUpperCase()) + '</div>' +
-          rows + removeRow + deleteRow +
+          rows + removeRow + editRow + deleteRow +
         '</div>' +
       '</div>';
   }
@@ -753,6 +804,8 @@
     else if(action === 'closeprofile'){ closeProfile(); }
     else if(action === 'pickphoto'){ pickPhoto(); }
     else if(action === 'deleteshow'){ deleteShow(el.getAttribute('data-showid')); }
+    else if(action === 'editshow'){ editShow(el.getAttribute('data-showid')); }
+    else if(action === 'shareapp'){ shareApp(); }
     else if(action === 'openmanage'){ openManageGenres(); }
     else if(action === 'closemanage'){ closeManageGenres(); }
     else if(action === 'togglehidegenre'){ toggleHideGenre(el.getAttribute('data-genre')); }
