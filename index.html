@@ -77,6 +77,7 @@
     user: null, users: [], shows: [], genres: [], allGenres: [], dbGenres: [],
     hiddenGenres: [], ranking: {},
     friendRanking: {}, tab: 'mytiers', genre: null, compareFriend: null,
+    compareGenres: [], compareGenre: null,
     sheetShowId: null, loading: true, addGenreMode: false,
     profileSheetOpen: false, avatarUrl: null, manageGenresOpen: false
   };
@@ -113,11 +114,23 @@
   function computeGenres(){
     var set = {};
     DEFAULT_GENRES.forEach(function(g){ set[g] = true; });
-    state.shows.forEach(function(s){ set[s.genre] = true; });
     (state.dbGenres || []).forEach(function(g){ set[g] = true; });
+    state.shows.forEach(function(s){
+      if(s.addedBy === state.user || state.ranking[s.id]) set[s.genre] = true;
+    });
     state.allGenres = Object.keys(set).sort();
     state.genres = state.allGenres.filter(function(g){ return state.hiddenGenres.indexOf(g) === -1; });
     if(!state.genre || state.genres.indexOf(state.genre) === -1) state.genre = state.genres[0] || null;
+  }
+
+  function computeCompareGenres(){
+    var set = {};
+    state.shows.forEach(function(s){
+      if(s.addedBy === state.compareFriend || state.friendRanking[s.id]) set[s.genre] = true;
+    });
+    var list = Object.keys(set).filter(function(g){ return state.hiddenGenres.indexOf(g) === -1; }).sort();
+    state.compareGenres = list;
+    if(!state.compareGenre || list.indexOf(state.compareGenre) === -1) state.compareGenre = list[0] || null;
   }
 
   async function init(){
@@ -260,6 +273,7 @@
     if(tier === null){ delete next[showId]; } else { next[showId] = tier; }
     state.ranking = next;
     state.sheetShowId = null;
+    computeGenres();
     render();
     try{
       if(tier === null){
@@ -287,6 +301,8 @@
     } else {
       state.friendRanking = {};
     }
+    state.compareGenre = null;
+    computeCompareGenres();
     render();
   }
 
@@ -459,13 +475,15 @@
     return out;
   }
 
-  function genreChips(){
+  function genreChips(list, current, action, showManage){
     var html = '<div id="tw-genre-scroll" style="display:flex;gap:8px;overflow-x:auto;padding:14px 16px;border-bottom:1px solid var(--border);">';
-    state.genres.forEach(function(g){
-      var active = g === state.genre;
-      html += '<button data-action="setgenre" data-genre="' + esc(g) + '" style="flex:none;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;border:1px solid ' + (active ? 'var(--gold)' : 'var(--border)') + ';background:' + (active ? 'var(--gold)' : 'var(--surface2)') + ';color:' + (active ? 'var(--gold-text)' : 'var(--text)') + ';white-space:nowrap;">' + esc(g) + '</button>';
+    list.forEach(function(g){
+      var active = g === current;
+      html += '<button data-action="' + action + '" data-genre="' + esc(g) + '" style="flex:none;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;border:1px solid ' + (active ? 'var(--gold)' : 'var(--border)') + ';background:' + (active ? 'var(--gold)' : 'var(--surface2)') + ';color:' + (active ? 'var(--gold-text)' : 'var(--text)') + ';white-space:nowrap;">' + esc(g) + '</button>';
     });
-    html += '<button data-action="openmanage" style="flex:none;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;border:1px dashed var(--border);background:none;color:var(--text-muted);white-space:nowrap;">Manage</button>';
+    if(showManage){
+      html += '<button data-action="openmanage" style="flex:none;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;border:1px dashed var(--border);background:none;color:var(--text-muted);white-space:nowrap;">Manage</button>';
+    }
     html += '</div>';
     return html;
   }
@@ -532,7 +550,9 @@
   }
 
   function renderMyTiers(){
-    var showsInGenre = state.shows.filter(function(s){ return s.genre === state.genre; });
+    var showsInGenre = state.shows.filter(function(s){
+      return s.genre === state.genre && (s.addedBy === state.user || state.ranking[s.id]);
+    });
     var body = '';
     if(showsInGenre.length === 0){
       body = '<div style="padding:40px 24px;text-align:center;">' +
@@ -559,7 +579,7 @@
           '<button data-action="settab" data-tab="add" style="width:100%;background:var(--surface2);border:1px dashed var(--border);color:var(--text);border-radius:8px;padding:11px;font-weight:500;font-size:13.5px;">+ Add another ' + esc(state.genre) + ' show</button>' +
         '</div>';
     }
-    return genreChips() + body;
+    return genreChips(state.genres, state.genre, 'setgenre', true) + body;
   }
 
   function renderCompare(){
@@ -574,17 +594,22 @@
     if(others.length === 0){
       return picker + '<div style="padding:40px 24px;text-align:center;">' +
           '<div style="font-family:var(--font-display);font-size:20px;color:var(--text-muted);">NO FRIENDS YET</div>' +
-          '<div style="font-size:13px;color:var(--text-muted);margin-top:8px;">Send them this link. Once they enter their name, you can compare tier lists here.</div>' +
+          '<div style="font-size:13px;color:var(--text-muted);margin-top:8px;">Send them this link. Once they enter their name, you can browse their lists here.</div>' +
         '</div>';
     }
     if(!state.compareFriend){
       return picker + '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">Pick a friend above to see their tiers.</div>';
     }
+    if(state.compareGenres.length === 0){
+      return picker + '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">' + esc(state.compareFriend) + " hasn't added or ranked anything yet.</div>";
+    }
 
-    var showsInGenre = state.shows.filter(function(s){ return s.genre === state.genre; });
-    var body = genreChips();
+    var showsInGenre = state.shows.filter(function(s){
+      return s.genre === state.compareGenre && (s.addedBy === state.compareFriend || state.friendRanking[s.id]);
+    });
+    var body = genreChips(state.compareGenres, state.compareGenre, 'setcomparegenre', false);
     if(showsInGenre.length === 0){
-      body += '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">No ' + esc(state.genre) + ' shows added yet.</div>';
+      body += '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">No ' + esc(state.compareGenre) + ' shows here yet.</div>';
     } else {
       TIERS.forEach(function(t){
         var inTier = showsInGenre.filter(function(s){ return state.friendRanking[s.id] === t; });
@@ -596,7 +621,7 @@
               ? {color:'var(--teal)', text:'YOU AGREE ON ' + t}
               : {color:'var(--text-muted)', text:'YOU HAVE IT ' + mine};
           }
-          return showCard(s, t, {compareBadge: badge});
+          return showCard(s, t, {compareBadge: badge, clickable:true});
         }).join('');
         body += tierShelf(t, cards);
       });
@@ -604,7 +629,7 @@
       if(friendUnranked.length){
         body += '<div style="padding:14px 16px 6px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);letter-spacing:.5px;">NOT YET RANKED BY ' + esc(state.compareFriend.toUpperCase()) + '</div>';
         body += '<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:0 16px 16px;">' +
-            friendUnranked.map(function(s){ return showCard(s, null, {}); }).join('') +
+            friendUnranked.map(function(s){ return showCard(s, null, {clickable:true}); }).join('') +
           '</div>';
       }
     }
@@ -644,7 +669,7 @@
     var plusSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>';
     return '<div style="display:flex;border-top:1px solid var(--border);background:var(--surface);position:sticky;bottom:0;padding-bottom:env(safe-area-inset-bottom);">' +
         item('mytiers', 'MY TIERS', listSvg) +
-        item('compare', 'COMPARE', compareSvg) +
+        item('compare', 'FRIENDS', compareSvg) +
         item('add', 'ADD', plusSvg) +
       '</div>';
   }
@@ -715,6 +740,7 @@
     if(action === 'stop'){ ev.stopPropagation(); return; }
     if(action === 'settab'){ setTab(el.getAttribute('data-tab')); }
     else if(action === 'setgenre'){ setGenre(el.getAttribute('data-genre')); }
+    else if(action === 'setcomparegenre'){ state.compareGenre = el.getAttribute('data-genre'); render(); }
     else if(action === 'opensheet'){ openSheet(el.getAttribute('data-showid')); }
     else if(action === 'closesheet'){ closeSheet(); }
     else if(action === 'settier'){
