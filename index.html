@@ -73,6 +73,7 @@
     B: {color:'var(--violet)', text:'var(--violet-text)', label:'B TIER', sub:'solid'},
     C: {color:'var(--rose)', text:'var(--rose-text)', label:'C TIER', sub:'skippable'}
   };
+  var OWNER_USERNAME = 'N.Sanchez';
   var DEFAULT_GENRES = ['Drama','Comedy','Sci-Fi','Fantasy','Crime','Reality','Animation','Documentary','Horror','Action'];
 
   var state = {
@@ -83,7 +84,7 @@
     allRankings: [], verdictGenres: [], verdictGenre: null,
     sheetShowId: null, loading: true, addGenreMode: false, addConfirm: null,
     addDraftTitle: '', addDraftGenre: '',
-    profileSheetOpen: false, avatarUrl: null, manageGenresOpen: false
+    profileSheetOpen: false, avatarUrl: null, manageGenresOpen: false, managePeopleOpen: false
   };
 
   var root = document.getElementById('tw-root');
@@ -458,6 +459,60 @@
       '</div>';
   }
 
+  function openManagePeople(){
+    state.managePeopleOpen = true;
+    state.profileSheetOpen = false;
+    render();
+  }
+  function closeManagePeople(){
+    state.managePeopleOpen = false;
+    render();
+  }
+  async function removePerson(username){
+    if(username === state.user){ alert("You can't remove yourself here."); return; }
+    if(!confirm('Remove ' + username + '? This deletes their rankings and profile. Shows they added stay if someone else has ranked them.')) return;
+    try{
+      await sb.from('rankings').delete().eq('user_name', username);
+      var theirShows = state.shows.filter(function(s){ return s.addedBy === username; });
+      for(var i=0;i<theirShows.length;i++){
+        var s = theirShows[i];
+        var check = await sb.from('rankings').select('user_name').eq('show_id', s.id);
+        if(check.data && check.data.length > 0){
+          await sb.from('shows').update({added_by: null}).eq('id', s.id);
+        } else {
+          await sb.from('shows').delete().eq('id', s.id);
+        }
+      }
+      await sb.from('users').delete().eq('name', username);
+      await loadShared();
+      render();
+    }catch(e){
+      alert("Couldn't remove that person. Check your connection and try again.");
+    }
+  }
+
+  function managePeopleSheet(){
+    if(!state.managePeopleOpen) return '';
+    var rows = state.users.map(function(u){
+      var isSelf = u === state.user;
+      var actionBtn = isSelf
+        ? '<span style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">YOU</span>'
+        : '<button data-action="removeperson" data-username="' + esc(u) + '" style="background:none;border:none;color:var(--rose);font-size:13px;font-weight:500;">Remove</button>';
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--border);">' +
+          '<div style="font-size:14px;">' + esc(u) + '</div>' +
+          actionBtn +
+        '</div>';
+    }).join('');
+    return '<div data-action="closepeople" style="position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;z-index:6;">' +
+        '<div data-action="stop" style="background:var(--surface);width:100%;max-width:480px;margin:0 auto;border-radius:16px 16px 0 0;padding:20px 16px calc(22px + env(safe-area-inset-bottom));border-top:1px solid var(--border);max-height:80vh;overflow-y:auto;">' +
+          '<div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px;"></div>' +
+          '<div style="font-family:var(--font-display);font-size:22px;margin-bottom:4px;">MANAGE PEOPLE</div>' +
+          '<div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Only you can see this. Removing someone deletes their rankings and profile.</div>' +
+          '<div>' + rows + '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
   function toggleNewGenre(){
     state.addGenreMode = !state.addGenreMode;
     render();
@@ -677,6 +732,7 @@
       : '<div style="width:56px;height:56px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:22px;color:var(--text-muted);">' + esc(initials(state.user)) + '</div>';
     var cameraSvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>';
     var swapSvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3l4 4-4 4"/><path d="M21 7H9"/><path d="M7 21l-4-4 4-4"/><path d="M3 17h12"/></svg>';
+    var peopleSvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M2 20c0-3 3-5 7-5s7 2 7 5"/><circle cx="18" cy="9" r="2.2"/><path d="M15.5 20c.3-2.2 2-3.8 4.5-4"/></svg>';
     return '<div data-action="closeprofile" style="position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;z-index:6;">' +
         '<div data-action="stop" style="background:var(--surface);width:100%;max-width:480px;margin:0 auto;border-radius:16px 16px 0 0;padding:20px 16px calc(22px + env(safe-area-inset-bottom));border-top:1px solid var(--border);">' +
           '<div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px;"></div>' +
@@ -686,6 +742,7 @@
           '</div>' +
           '<input type="file" id="tw-avatar-input" data-action="avatarfile" accept="image/*" style="display:none;" />' +
           '<button data-action="pickphoto" style="display:flex;align-items:center;gap:10px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px;color:var(--text);font-size:14px;font-weight:500;">' + cameraSvg + '<span>Change photo</span></button>' +
+          (state.user === OWNER_USERNAME ? '<button data-action="openpeople" style="display:flex;align-items:center;gap:10px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px;color:var(--text);font-size:14px;font-weight:500;">' + peopleSvg + '<span>Manage people</span></button>' : '') +
           '<button data-action="switchuser" style="display:flex;align-items:center;gap:10px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--text);font-size:14px;font-weight:500;">' + swapSvg + '<span>Switch user</span></button>' +
         '</div>' +
       '</div>';
@@ -972,6 +1029,7 @@
         sheet() +
         profileSheet() +
         manageGenresSheet() +
+        managePeopleSheet() +
       '</div>';
 
     var newScrollEl = document.getElementById('tw-genre-scroll');
@@ -1019,6 +1077,9 @@
     else if(action === 'togglehidegenre'){ toggleHideGenre(el.getAttribute('data-genre')); }
     else if(action === 'removeemptygenre'){ removeEmptyGenre(el.getAttribute('data-genre')); }
     else if(action === 'addnewgenre'){ addNewGenreLabel(); }
+    else if(action === 'openpeople'){ openManagePeople(); }
+    else if(action === 'closepeople'){ closeManagePeople(); }
+    else if(action === 'removeperson'){ removePerson(el.getAttribute('data-username')); }
   });
 
   root.addEventListener('change', function(ev){
