@@ -243,14 +243,27 @@
   }
 
   async function deleteShow(showId){
-    if(!confirm("Delete this show for everyone? This can't be undone.")) return;
+    if(!confirm("Delete this show? If nobody else has ranked it, it's removed for everyone. If someone else has, it'll only be removed from your list.")) return;
     try{
+      var check = await sb.from('rankings').select('user_name').eq('show_id', showId).neq('user_name', state.user);
+      if(check.error){ alert("Couldn't check first (" + check.error.message + "). Try again."); return; }
+      var others = (check.data || []).length;
+      if(others > 0){
+        await sb.from('rankings').delete().eq('user_name', state.user).eq('show_id', showId);
+        var next = Object.assign({}, state.ranking);
+        delete next[showId];
+        state.ranking = next;
+        state.sheetShowId = null;
+        render();
+        alert((others === 1 ? 'Someone else has' : others + ' other people have') + " this ranked, so it stays on the shared list \u2014 it's been removed from your rankings only.");
+        return;
+      }
       var res = await sb.from('shows').delete().eq('id', showId);
       if(res.error){ alert("Couldn't delete (" + res.error.message + ")."); return; }
       state.shows = state.shows.filter(function(s){ return s.id !== showId; });
-      var next = Object.assign({}, state.ranking);
-      delete next[showId];
-      state.ranking = next;
+      var next2 = Object.assign({}, state.ranking);
+      delete next2[showId];
+      state.ranking = next2;
       state.sheetShowId = null;
       render();
     }catch(e){
@@ -530,7 +543,7 @@
         '</button>';
     }).join('');
     var removeRow = current ? '<button data-action="settier" data-showid="' + esc(show.id) + '" data-tier="" style="width:100%;background:none;border:1px dashed var(--border);border-radius:8px;padding:10px;color:var(--text-muted);font-size:13px;margin-top:2px;">Remove from tier list</button>' : '';
-    var deleteRow = '<button data-action="deleteshow" data-showid="' + esc(show.id) + '" style="width:100%;background:none;border:none;padding:10px;color:var(--rose);font-size:13px;margin-top:6px;font-weight:500;">Delete show for everyone</button>';
+    var deleteRow = '<button data-action="deleteshow" data-showid="' + esc(show.id) + '" style="width:100%;background:none;border:none;padding:10px;color:var(--rose);font-size:13px;margin-top:6px;font-weight:500;">Delete show</button>';
     return '<div data-action="closesheet" style="position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;z-index:5;">' +
         '<div data-action="stop" style="background:var(--surface);width:100%;max-width:480px;margin:0 auto;border-radius:16px 16px 0 0;padding:18px 16px 22px;border-top:1px solid var(--border);">' +
           '<div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 14px;"></div>' +
