@@ -11,7 +11,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
-<script defer src="https://cdn.vercel-insights.com/v1/script.js"></script>
 <style>
   * { box-sizing: border-box; }
   html, body {
@@ -79,7 +78,8 @@
     hiddenGenres: [], ranking: {},
     friendRanking: {}, tab: 'mytiers', genre: null, compareFriend: null,
     compareGenres: [], compareGenre: null,
-    sheetShowId: null, loading: true, addGenreMode: false,
+    sheetShowId: null, loading: true, addGenreMode: false, addConfirm: null,
+    addDraftTitle: '', addDraftGenre: '',
     profileSheetOpen: false, avatarUrl: null, manageGenresOpen: false
   };
 
@@ -434,6 +434,100 @@
     render();
   }
 
+  function normalizeText(s){
+    return String(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  function findSimilarGenre(typed){
+    var norm = normalizeText(typed);
+    var set = {};
+    DEFAULT_GENRES.forEach(function(g){ set[g] = true; });
+    (state.dbGenres || []).forEach(function(g){ set[g] = true; });
+    state.shows.forEach(function(s){ set[s.genre] = true; });
+    var candidates = Object.keys(set);
+    for(var i=0;i<candidates.length;i++){
+      var c = candidates[i];
+      if(normalizeText(c) === norm && c !== typed) return c;
+    }
+    for(var j=0;j<candidates.length;j++){
+      var c2 = candidates[j];
+      var n2 = normalizeText(c2);
+      if(n2 !== norm && Math.min(n2.length, norm.length) >= 3 && (n2.indexOf(norm) !== -1 || norm.indexOf(n2) !== -1)){
+        return c2;
+      }
+    }
+    return null;
+  }
+
+  function findSimilarShows(typedTitle){
+    var norm = normalizeText(typedTitle);
+    var matches = [];
+    state.shows.forEach(function(s){
+      var n = normalizeText(s.title);
+      if(n === norm){ matches.push(s); return; }
+      if(Math.min(n.length, norm.length) >= 3 && (n.indexOf(norm) !== -1 || norm.indexOf(n) !== -1)){
+        matches.push(s);
+      }
+    });
+    return matches.slice(0, 3);
+  }
+
+  async function performAddShow(title, genre){
+    var err = document.getElementById('tw-add-error');
+    if(err) err.textContent = 'Saving…';
+    try{
+      var res = await sb.from('shows').insert({
+        title: title, genre: genre, poster: null, added_by: state.user
+      }).select().single();
+      if(res.error){ if(err) err.textContent = "Couldn't save (" + res.error.message + "). Try again."; return; }
+      var show = {id: res.data.id, title: res.data.title, genre: res.data.genre, poster: res.data.poster, addedBy: res.data.added_by};
+      state.shows = state.shows.concat([show]);
+      computeGenres();
+      state.genre = genre;
+      state.addGenreMode = false;
+      state.addConfirm = null;
+      state.addDraftTitle = '';
+      state.addDraftGenre = '';
+      state.tab = 'mytiers';
+      render();
+    }catch(e){
+      if(err) err.textContent = "Couldn't save. Check your connection and try again.";
+    }
+  }
+
+  function resolveAddConfirmGenre(useMatch){
+    var c = state.addConfirm;
+    if(!c) return;
+    if(useMatch) c.genre = c.genreMatch;
+    c.genreMatch = null;
+    if(c.titleMatches && c.titleMatches.length){
+      render();
+    } else {
+      var title = c.title, genre = c.genre;
+      state.addConfirm = null;
+      performAddShow(title, genre);
+    }
+  }
+
+  function useMatchedShow(showId){
+    state.addConfirm = null;
+    state.sheetShowId = showId;
+    render();
+  }
+
+  function addAnyway(){
+    var c = state.addConfirm;
+    if(!c) return;
+    var title = c.title, genre = c.genre;
+    state.addConfirm = null;
+    performAddShow(title, genre);
+  }
+
+  function cancelAddConfirm(){
+    state.addConfirm = null;
+    render();
+  }
+
   async function submitShow(ev){
     ev.preventDefault();
     var title = document.getElementById('tw-show-title').value.trim();
@@ -446,22 +540,18 @@
     var err = document.getElementById('tw-add-error');
     if(!title){ err.textContent = 'Enter a title first.'; return; }
     if(!genre){ err.textContent = 'Pick or enter a genre first.'; return; }
-    err.textContent = 'Saving…';
-    try{
-      var res = await sb.from('shows').insert({
-        title: title, genre: genre, poster: null, added_by: state.user
-      }).select().single();
-      if(res.error){ err.textContent = "Couldn't save (" + res.error.message + "). Try again."; return; }
-      var show = {id: res.data.id, title: res.data.title, genre: res.data.genre, poster: res.data.poster, addedBy: res.data.added_by};
-      state.shows = state.shows.concat([show]);
-      computeGenres();
-      state.genre = genre;
-      state.addGenreMode = false;
-      state.tab = 'mytiers';
+    err.textContent = '';
+    state.addDraftTitle = title;
+    state.addDraftGenre = genre;
+
+    var genreMatch = state.addGenreMode ? findSimilarGenre(genre) : null;
+    var titleMatches = findSimilarShows(title);
+    if(genreMatch || titleMatches.length){
+      state.addConfirm = {title: title, genre: genre, genreMatch: genreMatch, titleMatches: titleMatches};
       render();
-    }catch(e){
-      err.textContent = "Couldn't save. Check your connection and try again.";
+      return;
     }
+    await performAddShow(title, genre);
   }
 
   function renderLoading(){
@@ -686,9 +776,35 @@
     return picker + body;
   }
 
+  function renderAddConfirm(){
+    var c = state.addConfirm;
+    var body = '<div style="padding:20px 20px 28px;">' +
+        '<div style="font-family:var(--font-display);font-size:24px;margin-bottom:14px;">JUST CHECKING</div>';
+
+    if(c.genreMatch){
+      body += '<div style="font-size:14px;margin-bottom:14px;">You typed <strong>' + esc(c.genre) + '</strong> as a new genre \u2014 there\'s already a genre called <strong>' + esc(c.genreMatch) + '</strong>. Use that instead?</div>' +
+        '<button data-action="acceptgenre" style="width:100%;background:var(--gold);color:var(--gold-text);border:none;border-radius:8px;padding:12px;font-weight:600;font-size:14px;margin-bottom:8px;">Use "' + esc(c.genreMatch) + '"</button>' +
+        '<button data-action="keepnewgenre" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:12px;font-weight:500;font-size:14px;margin-bottom:8px;">Keep "' + esc(c.genre) + '" as a new genre</button>';
+    } else if(c.titleMatches && c.titleMatches.length){
+      body += '<div style="font-size:14px;margin-bottom:14px;">"' + esc(c.title) + '" looks similar to what\'s already on the shared list:</div>';
+      c.titleMatches.forEach(function(m){
+        body += '<button data-action="usematch" data-showid="' + esc(m.id) + '" style="display:block;width:100%;text-align:left;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:11px 14px;margin-bottom:8px;color:var(--text);">' +
+            '<span style="display:block;font-size:14px;font-weight:500;">' + esc(m.title) + '</span>' +
+            '<span style="display:block;font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px;">' + esc(m.genre.toUpperCase()) + ' \u2014 tap to rank this one</span>' +
+          '</button>';
+      });
+      body += '<button data-action="addanyway" style="width:100%;background:none;border:1px dashed var(--border);color:var(--text-muted);border-radius:8px;padding:11px;font-size:13px;margin-top:6px;">Add "' + esc(c.title) + '" as a new show anyway</button>';
+    }
+
+    body += '<button data-action="canceladd" style="width:100%;background:none;border:none;color:var(--text-muted);font-size:13px;margin-top:14px;text-decoration:underline;">Go back and edit</button>' +
+      '</div>';
+    return body;
+  }
+
   function renderAdd(){
+    if(state.addConfirm) return renderAddConfirm();
     var genreField = state.addGenreMode
-      ? '<input id="tw-new-genre" placeholder="New genre name" maxlength="20" />' +
+      ? '<input id="tw-new-genre" placeholder="New genre name" maxlength="20" value="' + esc(state.addDraftGenre || '') + '" />' +
         '<button type="button" data-action="togglenewgenre" style="margin-top:6px;background:none;border:none;color:var(--text-muted);font-size:12px;text-decoration:underline;">Choose existing genre instead</button>'
       : '<select id="tw-genre-select">' +
           state.genres.map(function(g){ return '<option value="' + esc(g) + '"' + (g===state.genre?' selected':'') + '>' + esc(g) + '</option>'; }).join('') +
@@ -698,7 +814,7 @@
     return '<form id="tw-add-form" style="padding:20px 20px 28px;">' +
         '<div style="font-family:var(--font-display);font-size:26px;margin-bottom:14px;">ADD A SHOW</div>' +
         '<label style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">TITLE</label>' +
-        '<div style="margin:6px 0 14px;"><input id="tw-show-title" placeholder="e.g. The Bear" maxlength="80" /></div>' +
+        '<div style="margin:6px 0 14px;"><input id="tw-show-title" placeholder="e.g. The Bear" maxlength="80" value="' + esc(state.addDraftTitle || '') + '" /></div>' +
         '<label style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">GENRE</label>' +
         '<div style="margin:6px 0 4px;">' + genreField + '</div>' +
         '<div id="tw-add-error" style="color:var(--rose);font-size:13px;margin-top:10px;"></div>' +
@@ -806,6 +922,11 @@
     else if(action === 'deleteshow'){ deleteShow(el.getAttribute('data-showid')); }
     else if(action === 'editshow'){ editShow(el.getAttribute('data-showid')); }
     else if(action === 'shareapp'){ shareApp(); }
+    else if(action === 'acceptgenre'){ resolveAddConfirmGenre(true); }
+    else if(action === 'keepnewgenre'){ resolveAddConfirmGenre(false); }
+    else if(action === 'usematch'){ useMatchedShow(el.getAttribute('data-showid')); }
+    else if(action === 'addanyway'){ addAnyway(); }
+    else if(action === 'canceladd'){ cancelAddConfirm(); }
     else if(action === 'openmanage'){ openManageGenres(); }
     else if(action === 'closemanage'){ closeManageGenres(); }
     else if(action === 'togglehidegenre'){ toggleHideGenre(el.getAttribute('data-genre')); }
