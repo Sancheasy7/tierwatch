@@ -138,8 +138,10 @@
   }
 
   function computeVerdictGenres(){
+    var counts = {};
+    state.allRankings.forEach(function(r){ counts[r.show_id] = (counts[r.show_id] || 0) + 1; });
     var set = {};
-    state.shows.forEach(function(s){ set[s.genre] = true; });
+    state.shows.forEach(function(s){ if((counts[s.id] || 0) >= 2) set[s.genre] = true; });
     var list = Object.keys(set).filter(function(g){ return state.hiddenGenres.indexOf(g) === -1; }).sort();
     state.verdictGenres = list;
     if(!state.verdictGenre || list.indexOf(state.verdictGenre) === -1) state.verdictGenre = list[0] || null;
@@ -155,9 +157,9 @@
   }
 
   function verdictGenreCount(g){
-    var ranked = {};
-    state.allRankings.forEach(function(r){ ranked[r.show_id] = true; });
-    return state.shows.filter(function(s){ return s.genre === g && ranked[s.id]; }).length;
+    var counts = {};
+    state.allRankings.forEach(function(r){ counts[r.show_id] = (counts[r.show_id] || 0) + 1; });
+    return state.shows.filter(function(s){ return s.genre === g && (counts[s.id] || 0) >= 2; }).length;
   }
 
   async function init(){
@@ -836,16 +838,14 @@
         '</div>';
     }
 
-    var rankedIds = {};
     var byShow = {};
     state.allRankings.forEach(function(r){
       if(!byShow[r.show_id]) byShow[r.show_id] = [];
       byShow[r.show_id].push(r.tier);
-      rankedIds[r.show_id] = true;
     });
 
     var entries = state.shows
-      .filter(function(s){ return s.genre === state.verdictGenre && rankedIds[s.id]; })
+      .filter(function(s){ return s.genre === state.verdictGenre && byShow[s.id] && byShow[s.id].length >= 2; })
       .map(function(s){
         var tiers = byShow[s.id];
         var sum = 0;
@@ -864,7 +864,7 @@
     var body = genreChips(state.verdictGenres, state.verdictGenre, 'setverdictgenre', false, verdictGenreCount);
 
     if(entries.length === 0){
-      body += '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">No one\'s ranked anything in ' + esc(state.verdictGenre) + ' yet.</div>';
+      body += '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">Nothing in ' + esc(state.verdictGenre) + ' has been ranked by more than one person yet.</div>';
       return body;
     }
 
