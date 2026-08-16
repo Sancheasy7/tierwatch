@@ -84,7 +84,8 @@
     allRankings: [], verdictGenres: [], verdictGenre: null,
     sheetShowId: null, loading: true, addGenreMode: false, addConfirm: null,
     addDraftTitle: '', addDraftGenre: '',
-    profileSheetOpen: false, avatarUrl: null, manageGenresOpen: false, managePeopleOpen: false
+    profileSheetOpen: false, avatarUrl: null, manageGenresOpen: false, managePeopleOpen: false,
+    showAddToHome: false
   };
 
   var root = document.getElementById('tw-root');
@@ -172,6 +173,7 @@
     state.user = uname;
     await loadShared();
     state.loading = false;
+    state.showAddToHome = shouldShowAddToHome();
     render();
   }
 
@@ -211,7 +213,40 @@
     state.user = name;
     try{ await sb.from('users').upsert({name: name}); }catch(e){}
     await loadShared();
+    state.showAddToHome = shouldShowAddToHome();
     render();
+  }
+
+  function shouldShowAddToHome(){
+    try{
+      if(localStorage.getItem('tw_addtohome_dismissed')) return false;
+      var isStandalone = window.navigator.standalone === true ||
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+      if(isStandalone) return false;
+      var ua = window.navigator.userAgent || '';
+      return /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+    }catch(e){ return false; }
+  }
+
+  function dismissAddToHome(){
+    try{ localStorage.setItem('tw_addtohome_dismissed', '1'); }catch(e){}
+    state.showAddToHome = false;
+    render();
+  }
+
+  function addToHomeModal(){
+    if(!state.showAddToHome) return '';
+    var shareSvg = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><rect x="5" y="11" width="14" height="10" rx="2"/></svg>';
+    return '<div data-action="dismissaddtohome" style="position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:7;padding:24px;">' +
+        '<div data-action="stop" style="background:var(--surface);width:100%;max-width:340px;border-radius:16px;border:1px solid var(--border);padding:24px 20px;text-align:center;">' +
+          '<div style="width:48px;height:48px;border-radius:12px;background:var(--surface2);color:var(--gold);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">' + shareSvg + '</div>' +
+          '<div style="font-family:var(--font-display);font-size:22px;margin-bottom:8px;">GET THE APP</div>' +
+          '<div style="font-size:14px;color:var(--text);line-height:1.5;margin-bottom:6px;">Add TierWatch to your Home Screen for the full app feel \u2014 no browser bar, just tap and go.</div>' +
+          '<div style="font-size:14px;color:var(--text);line-height:1.5;margin-bottom:16px;">In Safari, tap the <strong>Share</strong> icon in your toolbar, then <strong>"Add to Home Screen."</strong></div>' +
+          '<div style="font-size:12px;color:var(--text-muted);font-style:italic;margin-bottom:18px;">\u2013 Nathan</div>' +
+          '<button data-action="dismissaddtohome" style="width:100%;background:var(--gold);color:var(--gold-text);border:none;border-radius:8px;padding:12px;font-weight:600;font-size:14px;">Got it</button>' +
+        '</div>' +
+      '</div>';
   }
 
   function switchUser(){
@@ -1030,6 +1065,7 @@
         profileSheet() +
         manageGenresSheet() +
         managePeopleSheet() +
+        addToHomeModal() +
       '</div>';
 
     var newScrollEl = document.getElementById('tw-genre-scroll');
@@ -1080,6 +1116,7 @@
     else if(action === 'openpeople'){ openManagePeople(); }
     else if(action === 'closepeople'){ closeManagePeople(); }
     else if(action === 'removeperson'){ removePerson(el.getAttribute('data-username')); }
+    else if(action === 'dismissaddtohome'){ dismissAddToHome(); }
   });
 
   root.addEventListener('change', function(ev){
