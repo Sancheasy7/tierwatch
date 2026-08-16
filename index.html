@@ -167,13 +167,35 @@
     var input = document.getElementById('tw-avatar-input');
     if(input) input.click();
   }
+  function compressImage(file, maxDim, quality){
+    return new Promise(function(resolve, reject){
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function(){
+        var scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        var w = Math.round(img.width * scale) || 1;
+        var h = Math.round(img.height * scale) || 1;
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        canvas.toBlob(function(blob){
+          if(blob) resolve(blob); else reject(new Error('Could not process that image'));
+        }, 'image/jpeg', quality);
+      };
+      img.onerror = function(){ URL.revokeObjectURL(url); reject(new Error('Could not read that image')); };
+      img.src = url;
+    });
+  }
+
   async function uploadAvatar(file){
     if(!file) return;
-    if(file.size > 5 * 1024 * 1024){ alert('That photo is too large. Try one under 5MB.'); return; }
-    var ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg';
-    var path = state.user.replace(/[^a-zA-Z0-9_-]/g, '_') + '_' + Date.now() + '.' + ext;
+    if(file.size > 30 * 1024 * 1024){ alert('That file is too large to process. Try a different photo.'); return; }
+    var path = state.user.replace(/[^a-zA-Z0-9_-]/g, '_') + '_' + Date.now() + '.jpg';
     try{
-      var up = await sb.storage.from('avatars').upload(path, file, {upsert: true, cacheControl: '3600'});
+      var blob = await compressImage(file, 480, 0.82);
+      var up = await sb.storage.from('avatars').upload(path, blob, {upsert: true, cacheControl: '3600', contentType: 'image/jpeg'});
       if(up.error){ alert("Couldn't upload photo (" + up.error.message + ")."); return; }
       var pub = sb.storage.from('avatars').getPublicUrl(path);
       var url = pub.data.publicUrl;
@@ -183,7 +205,7 @@
       state.profileSheetOpen = false;
       render();
     }catch(e){
-      alert("Couldn't upload photo. Check your connection and try again.");
+      alert((e && e.message) || "Couldn't upload photo. Check your connection and try again.");
     }
   }
 
