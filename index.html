@@ -253,6 +253,34 @@
       '</div>';
   }
 
+  async function renameSelf(newName){
+    newName = newName.trim();
+    if(!newName || newName === state.user) return;
+    if(!isValidName(newName)){ alert("Names can only use letters, numbers, spaces, and . ' - (no emojis or symbols)."); return; }
+    if(state.users.indexOf(newName) !== -1){ alert('That name is already taken.'); return; }
+    try{
+      var res = await sb.from('users').update({name: newName}).eq('name', state.user);
+      if(res.error){ alert("Couldn't rename (" + res.error.message + ")."); return; }
+      var oldName = state.user;
+      localStorage.setItem('tw_username', newName);
+      state.user = newName;
+      state.users = state.users.map(function(u){ return u === oldName ? newName : u; });
+      state.shows = state.shows.map(function(s){
+        return s.addedBy === oldName ? Object.assign({}, s, {addedBy: newName}) : s;
+      });
+      state.profileSheetOpen = false;
+      render();
+    }catch(e){
+      alert("Couldn't rename. Check your connection and try again.");
+    }
+  }
+
+  function changeNamePrompt(){
+    var newName = prompt('Enter a new name', state.user);
+    if(newName === null) return;
+    renameSelf(newName);
+  }
+
   function switchUser(){
     if(!confirm('Switch user on this device?')) return;
     localStorage.removeItem('tw_username');
@@ -773,6 +801,7 @@
     var cameraSvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>';
     var swapSvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3l4 4-4 4"/><path d="M21 7H9"/><path d="M7 21l-4-4 4-4"/><path d="M3 17h12"/></svg>';
     var peopleSvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M2 20c0-3 3-5 7-5s7 2 7 5"/><circle cx="18" cy="9" r="2.2"/><path d="M15.5 20c.3-2.2 2-3.8 4.5-4"/></svg>';
+    var editSvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
     return '<div data-action="closeprofile" style="position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;z-index:6;">' +
         '<div data-action="stop" style="background:var(--surface);width:100%;max-width:480px;margin:0 auto;border-radius:16px 16px 0 0;padding:20px 16px calc(22px + env(safe-area-inset-bottom));border-top:1px solid var(--border);">' +
           '<div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px;"></div>' +
@@ -782,6 +811,7 @@
           '</div>' +
           '<input type="file" id="tw-avatar-input" data-action="avatarfile" accept="image/*" style="display:none;" />' +
           '<button data-action="pickphoto" style="display:flex;align-items:center;gap:10px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px;color:var(--text);font-size:14px;font-weight:500;">' + cameraSvg + '<span>Change photo</span></button>' +
+          '<button data-action="changename" style="display:flex;align-items:center;gap:10px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px;color:var(--text);font-size:14px;font-weight:500;">' + editSvg + '<span>Change name</span></button>' +
           (state.user === OWNER_USERNAME ? '<button data-action="openpeople" style="display:flex;align-items:center;gap:10px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px;color:var(--text);font-size:14px;font-weight:500;">' + peopleSvg + '<span>Manage people</span></button>' : '') +
           '<button data-action="switchuser" style="display:flex;align-items:center;gap:10px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--text);font-size:14px;font-weight:500;">' + swapSvg + '<span>Switch user</span></button>' +
         '</div>' +
@@ -1105,6 +1135,7 @@
     else if(action === 'openprofile'){ openProfile(); }
     else if(action === 'closeprofile'){ closeProfile(); }
     else if(action === 'pickphoto'){ pickPhoto(); }
+    else if(action === 'changename'){ changeNamePrompt(); }
     else if(action === 'deleteshow'){ deleteShow(el.getAttribute('data-showid')); }
     else if(action === 'editshow'){ editShow(el.getAttribute('data-showid')); }
     else if(action === 'shareapp'){ shareApp(); }
