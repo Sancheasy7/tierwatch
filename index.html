@@ -655,18 +655,25 @@
     if(username === state.user){ alert("You can't remove yourself here."); return; }
     if(!confirm('Remove ' + username + '? This deletes their rankings and profile. Shows they added stay if someone else has ranked them.')) return;
     try{
-      await sb.from('rankings').delete().eq('user_name', username);
+      var rankRes = await sb.from('rankings').delete().eq('user_name', username);
+      if(rankRes.error){ alert("Couldn't remove their rankings (" + rankRes.error.message + "). Nothing was removed."); return; }
+
       var theirShows = state.shows.filter(function(s){ return s.addedBy === username; });
       for(var i=0;i<theirShows.length;i++){
         var s = theirShows[i];
         var check = await sb.from('rankings').select('user_name').eq('show_id', s.id);
         if(check.data && check.data.length > 0){
-          await sb.from('shows').update({added_by: null}).eq('id', s.id);
+          var updRes = await sb.from('shows').update({added_by: null}).eq('id', s.id);
+          if(updRes.error){ alert("Couldn't update one of their shows (" + updRes.error.message + "). Stopped before removing the person."); return; }
         } else {
-          await sb.from('shows').delete().eq('id', s.id);
+          var delRes = await sb.from('shows').delete().eq('id', s.id);
+          if(delRes.error){ alert("Couldn't remove one of their shows (" + delRes.error.message + "). Stopped before removing the person."); return; }
         }
       }
-      await sb.from('users').delete().eq('name', username);
+
+      var userRes = await sb.from('users').delete().eq('name', username);
+      if(userRes.error){ alert("Couldn't remove " + username + " (" + userRes.error.message + ")."); return; }
+
       await loadShared();
       render();
     }catch(e){
