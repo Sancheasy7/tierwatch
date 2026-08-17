@@ -80,7 +80,7 @@
     user: null, users: [], shows: [], genres: [], allGenres: [], dbGenres: [],
     hiddenGenres: [], ranking: {},
     friendRanking: {}, tab: 'mytiers', genre: null, compareFriend: null,
-    compareGenres: [], compareGenre: null,
+    compareGenres: [], compareGenre: null, myFriends: [], manageFriendsOpen: false,
     allRankings: [], verdictGenres: [], verdictGenre: null,
     sheetShowId: null, loading: true, addGenreMode: false, addConfirm: null,
     addDraftTitle: '', addDraftGenre: '',
@@ -195,6 +195,11 @@
         return {id: r.id, title: r.title, genre: r.genre, poster: r.poster, addedBy: r.added_by};
       });
     }catch(e){ state.shows = state.shows || []; }
+
+    try{
+      var f = await sb.from('friendships').select('friend_name').eq('user_name', state.user);
+      state.myFriends = (f.data || []).map(function(row){ return row.friend_name; });
+    }catch(e){ state.myFriends = state.myFriends || []; }
 
     try{
       var g = await sb.from('genres').select('name');
@@ -490,6 +495,76 @@
     }catch(e){
       alert("Couldn't delete. Check your connection and try again.");
     }
+  }
+
+  function openManageFriends(){
+    state.manageFriendsOpen = true;
+    render();
+  }
+  function closeManageFriends(){
+    state.manageFriendsOpen = false;
+    render();
+  }
+  async function addFriend(name){
+    if(state.myFriends.indexOf(name) !== -1) return;
+    try{
+      var res = await sb.from('friendships').insert({user_name: state.user, friend_name: name});
+      if(res.error){ alert("Couldn't add friend (" + res.error.message + ")."); return; }
+      state.myFriends = state.myFriends.concat([name]);
+      render();
+    }catch(e){
+      alert("Couldn't add friend. Check your connection and try again.");
+    }
+  }
+  async function removeFriend(name){
+    try{
+      var res = await sb.from('friendships').delete().eq('user_name', state.user).eq('friend_name', name);
+      if(res.error){ alert("Couldn't remove friend (" + res.error.message + ")."); return; }
+      state.myFriends = state.myFriends.filter(function(f){ return f !== name; });
+      if(state.compareFriend === name){ state.compareFriend = null; state.friendRanking = {}; }
+      render();
+    }catch(e){
+      alert("Couldn't remove friend. Check your connection and try again.");
+    }
+  }
+
+  function friendChips(){
+    var html = '<div id="tw-genre-scroll" style="display:flex;gap:8px;overflow-x:auto;padding:14px 16px;border-bottom:1px solid var(--border);">';
+    state.myFriends.forEach(function(f){
+      var active = f === state.compareFriend;
+      html += '<button data-action="selectfriendchip" data-username="' + esc(f) + '" style="flex:none;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;border:1px solid ' + (active ? 'var(--gold)' : 'var(--border)') + ';background:' + (active ? 'var(--gold)' : 'var(--surface2)') + ';color:' + (active ? 'var(--gold-text)' : 'var(--text)') + ';white-space:nowrap;">' + esc(f) + '</button>';
+    });
+    html += '<button data-action="openmanagefriends" style="flex:none;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;border:1px dashed var(--border);background:none;color:var(--text-muted);white-space:nowrap;">+ Add friend</button>';
+    html += '</div>';
+    return html;
+  }
+
+  function manageFriendsSheet(){
+    if(!state.manageFriendsOpen) return '';
+    var others = state.users.filter(function(u){ return u !== state.user; });
+    var rows;
+    if(others.length === 0){
+      rows = '<div style="padding:24px 0;text-align:center;color:var(--text-muted);font-size:13px;">No one else has joined yet.</div>';
+    } else {
+      rows = others.map(function(u){
+        var added = state.myFriends.indexOf(u) !== -1;
+        var btn = added
+          ? '<button data-action="removefriend" data-username="' + esc(u) + '" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-size:13px;font-weight:500;padding:6px 12px;">Remove</button>'
+          : '<button data-action="addfriend" data-username="' + esc(u) + '" style="background:var(--gold);color:var(--gold-text);border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;">Add</button>';
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--border);">' +
+            '<div style="font-size:14px;">' + esc(u) + '</div>' +
+            btn +
+          '</div>';
+      }).join('');
+    }
+    return '<div data-action="closemanagefriends" style="position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;z-index:6;">' +
+        '<div data-action="stop" style="background:var(--surface);width:100%;max-width:480px;margin:0 auto;border-radius:16px 16px 0 0;padding:20px 16px calc(22px + env(safe-area-inset-bottom));border-top:1px solid var(--border);max-height:80vh;overflow-y:auto;">' +
+          '<div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px;"></div>' +
+          '<div style="font-family:var(--font-display);font-size:22px;margin-bottom:4px;">ADD FRIENDS</div>' +
+          '<div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Only people you add show up in your Friends tab.</div>' +
+          '<div>' + rows + '</div>' +
+        '</div>' +
+      '</div>';
   }
 
   function openManageGenres(){
@@ -924,30 +999,32 @@
 
   function renderCompare(){
     var others = state.users.filter(function(u){ return u !== state.user; });
-    var picker = '<div style="padding:14px 16px;border-bottom:1px solid var(--border);">' +
-        '<select data-action="friendchange">' +
-          '<option value="">Choose a friend</option>' +
-          others.map(function(u){ return '<option value="' + esc(u) + '"' + (state.compareFriend===u?' selected':'') + '>' + esc(u) + '</option>'; }).join('') +
-        '</select>' +
-      '</div>';
 
     if(others.length === 0){
-      return picker + '<div style="padding:40px 24px;text-align:center;">' +
-          '<div style="font-family:var(--font-display);font-size:20px;color:var(--text-muted);">NO FRIENDS YET</div>' +
-          '<div style="font-size:13px;color:var(--text-muted);margin-top:8px;">Send them this link. Once they enter their name, you can browse their lists here.</div>' +
+      return '<div style="padding:40px 24px;text-align:center;">' +
+          '<div style="font-family:var(--font-display);font-size:20px;color:var(--text-muted);">NO ONE ELSE YET</div>' +
+          '<div style="font-size:13px;color:var(--text-muted);margin-top:8px;">Send them this link. Once they join, you can add them as a friend here.</div>' +
+        '</div>';
+    }
+    if(state.myFriends.length === 0){
+      return '<div style="padding:40px 24px;text-align:center;">' +
+          '<div style="font-family:var(--font-display);font-size:20px;color:var(--text-muted);">NO FRIENDS ADDED</div>' +
+          '<div style="font-size:13px;color:var(--text-muted);margin:8px 0 18px;">Pick who you want to see in this tab.</div>' +
+          '<button data-action="openmanagefriends" style="background:var(--gold);color:var(--gold-text);border:none;border-radius:8px;padding:10px 18px;font-weight:600;font-size:14px;">Add a friend</button>' +
         '</div>';
     }
     if(!state.compareFriend){
-      return picker + '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">Pick a friend above to see their tiers.</div>';
+      return friendChips() + '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">Pick a friend above to see their tiers.</div>';
     }
     if(state.compareGenres.length === 0){
-      return picker + '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">' + esc(state.compareFriend) + " hasn't added or ranked anything yet.</div>";
+      return friendChips() + '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">' + esc(state.compareFriend) + " hasn't added or ranked anything yet.</div>";
     }
 
     var showsInGenre = state.shows.filter(function(s){
       return s.genre === state.compareGenre && (s.addedBy === state.compareFriend || state.friendRanking[s.id]);
     });
-    var body = genreChips(state.compareGenres, state.compareGenre, 'setcomparegenre', false, compareGenreCount);
+    var body = friendChips();
+    body += genreChips(state.compareGenres, state.compareGenre, 'setcomparegenre', false, compareGenreCount);
     if(showsInGenre.length === 0){
       body += '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">No ' + esc(state.compareGenre) + ' shows here yet.</div>';
     } else {
@@ -973,7 +1050,7 @@
           '</div>';
       }
     }
-    return picker + body;
+    return body;
   }
 
   function renderAddConfirm(){
@@ -1144,6 +1221,7 @@
         profileSheet() +
         manageGenresSheet() +
         managePeopleSheet() +
+        manageFriendsSheet() +
         addToHomeModal() +
       '</div>';
 
@@ -1167,6 +1245,11 @@
     if(action === 'settab'){ setTab(el.getAttribute('data-tab')); }
     else if(action === 'setgenre'){ setGenre(el.getAttribute('data-genre')); }
     else if(action === 'setcomparegenre'){ state.compareGenre = el.getAttribute('data-genre'); render(); }
+    else if(action === 'selectfriendchip'){ selectFriend(el.getAttribute('data-username')); }
+    else if(action === 'openmanagefriends'){ openManageFriends(); }
+    else if(action === 'closemanagefriends'){ closeManageFriends(); }
+    else if(action === 'addfriend'){ addFriend(el.getAttribute('data-username')); }
+    else if(action === 'removefriend'){ removeFriend(el.getAttribute('data-username')); }
     else if(action === 'setverdictgenre'){ state.verdictGenre = el.getAttribute('data-genre'); render(); }
     else if(action === 'opensheet'){ openSheet(el.getAttribute('data-showid')); }
     else if(action === 'closesheet'){ closeSheet(); }
