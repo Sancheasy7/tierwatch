@@ -96,6 +96,10 @@
     });
   }
 
+  function isValidName(name){
+    return /^[\p{L}\p{M}\p{N} .'-]{1,24}$/u.test(name);
+  }
+
   function initials(name){
     var parts = String(name).trim().split(/\s+/);
     var out = parts[0] ? parts[0][0] : '?';
@@ -208,7 +212,7 @@
 
   async function claimUser(name){
     name = name.trim();
-    if(!name) return;
+    if(!name || !isValidName(name)) return;
     localStorage.setItem('tw_username', name);
     state.user = name;
     try{ await sb.from('users').upsert({name: name}); }catch(e){}
@@ -694,6 +698,7 @@
       ev.preventDefault();
       var v = document.getElementById('tw-name-input').value.trim();
       if(!v){ document.getElementById('tw-onboard-error').textContent = 'Enter a name first.'; return; }
+      if(!isValidName(v)){ document.getElementById('tw-onboard-error').textContent = "Names can only use letters, numbers, spaces, and . ' - (no emojis or symbols)."; return; }
       claimUser(v);
     });
   }
