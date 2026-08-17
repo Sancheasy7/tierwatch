@@ -84,7 +84,7 @@
     allRankings: [], verdictGenres: [], verdictGenre: null,
     sheetShowId: null, loading: true, addGenreMode: false, addConfirm: null,
     addDraftTitle: '', addDraftGenre: '',
-    profileSheetOpen: false, avatarUrl: null, manageGenresOpen: false, managePeopleOpen: false,
+    profileSheetOpen: false, avatarUrl: null, userAvatars: {}, manageGenresOpen: false, managePeopleOpen: false,
     showAddToHome: false
   };
 
@@ -98,6 +98,15 @@
 
   function isValidName(name){
     return /^[\p{L}\p{M}\p{N} .'-]{1,24}$/u.test(name);
+  }
+
+  function avatarCircle(username, size){
+    size = size || 32;
+    var url = state.userAvatars[username];
+    var inner = url
+      ? '<img src="' + esc(url) + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;" onerror="this.style.display=\'none\'" />'
+      : esc(initials(username));
+    return '<div style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:' + Math.round(size * 0.4) + 'px;color:var(--text-muted);overflow:hidden;flex:none;">' + inner + '</div>';
   }
 
   function initials(name){
@@ -187,6 +196,9 @@
       state.users = (u.data || []).map(function(r){ return r.name; });
       var mine = (u.data || []).filter(function(r){ return r.name === state.user; })[0];
       state.avatarUrl = mine ? mine.avatar_url : null;
+      var avatarMap = {};
+      (u.data || []).forEach(function(r){ avatarMap[r.name] = r.avatar_url; });
+      state.userAvatars = avatarMap;
     }catch(e){ state.users = state.users || []; }
 
     try{
@@ -369,6 +381,14 @@
     });
   }
 
+  function avatarPathFromUrl(url){
+    if(!url) return null;
+    var marker = '/avatars/';
+    var idx = url.indexOf(marker);
+    if(idx === -1) return null;
+    return url.substring(idx + marker.length).split('?')[0];
+  }
+
   async function uploadAvatar(file){
     if(!file) return;
     if(file.size > 30 * 1024 * 1024){ alert('That file is too large to process. Try a different photo.'); return; }
@@ -381,9 +401,13 @@
       var url = pub.data.publicUrl;
       var res = await sb.from('users').upsert({name: state.user, avatar_url: url});
       if(res.error){ alert("Photo uploaded but couldn't save it to your profile (" + res.error.message + ")."); return; }
+      var oldPath = avatarPathFromUrl(state.avatarUrl);
       state.avatarUrl = url;
       state.profileSheetOpen = false;
       render();
+      if(oldPath){
+        sb.storage.from('avatars').remove([oldPath]).catch(function(){});
+      }
     }catch(e){
       alert((e && e.message) || "Couldn't upload photo. Check your connection and try again.");
     }
@@ -554,7 +578,7 @@
           ? '<button data-action="removefriend" data-username="' + esc(u) + '" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-size:13px;font-weight:500;padding:6px 12px;">Remove</button>'
           : '<button data-action="addfriend" data-username="' + esc(u) + '" style="background:var(--gold);color:var(--gold-text);border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;">Add</button>';
         return '<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--border);">' +
-            '<div style="font-size:14px;">' + esc(u) + '</div>' +
+            '<div style="display:flex;align-items:center;gap:10px;">' + avatarCircle(u, 32) + '<div style="font-size:14px;">' + esc(u) + '</div></div>' +
             btn +
           '</div>';
       }).join('');
@@ -692,7 +716,7 @@
             '<button data-action="removeperson" data-username="' + esc(u) + '" style="background:none;border:none;color:var(--rose);font-size:13px;font-weight:500;">Remove</button>' +
           '</div>';
       return '<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--border);">' +
-          '<div style="font-size:14px;">' + esc(u) + '</div>' +
+          '<div style="display:flex;align-items:center;gap:10px;">' + avatarCircle(u, 32) + '<div style="font-size:14px;">' + esc(u) + '</div></div>' +
           actionBtn +
         '</div>';
     }).join('');
@@ -1033,6 +1057,7 @@
       return s.genre === state.compareGenre && (s.addedBy === state.compareFriend || state.friendRanking[s.id]);
     });
     var body = friendPicker();
+    body += '<div style="display:flex;align-items:center;gap:10px;padding:12px 16px 0;">' + avatarCircle(state.compareFriend, 28) + '<div style="font-size:13px;color:var(--text-muted);">Viewing ' + esc(state.compareFriend) + "'s tiers</div></div>";
     body += genreChips(state.compareGenres, state.compareGenre, 'setcomparegenre', false, compareGenreCount);
     if(showsInGenre.length === 0){
       body += '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">No ' + esc(state.compareGenre) + ' shows here yet.</div>';
