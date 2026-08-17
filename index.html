@@ -528,13 +528,15 @@
     }
   }
 
-  function friendChips(){
-    var html = '<div id="tw-genre-scroll" style="display:flex;gap:8px;overflow-x:auto;padding:14px 16px;border-bottom:1px solid var(--border);">';
+  function friendPicker(){
+    var html = '<div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;">';
+    html += '<select data-action="friendchange" style="flex:1;">';
+    html += '<option value="">Choose a friend</option>';
     state.myFriends.forEach(function(f){
-      var active = f === state.compareFriend;
-      html += '<button data-action="selectfriendchip" data-username="' + esc(f) + '" style="flex:none;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;border:1px solid ' + (active ? 'var(--gold)' : 'var(--border)') + ';background:' + (active ? 'var(--gold)' : 'var(--surface2)') + ';color:' + (active ? 'var(--gold-text)' : 'var(--text)') + ';white-space:nowrap;">' + esc(f) + '</button>';
+      html += '<option value="' + esc(f) + '"' + (state.compareFriend === f ? ' selected' : '') + '>' + esc(f) + '</option>';
     });
-    html += '<button data-action="openmanagefriends" style="flex:none;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;border:1px dashed var(--border);background:none;color:var(--text-muted);white-space:nowrap;">+ Add friend</button>';
+    html += '</select>';
+    html += '<button data-action="openmanagefriends" style="flex:none;background:var(--surface2);border:1px dashed var(--border);color:var(--text-muted);border-radius:8px;padding:10px 14px;font-size:13px;font-weight:500;white-space:nowrap;">+ Add</button>';
     html += '</div>';
     return html;
   }
@@ -1014,16 +1016,16 @@
         '</div>';
     }
     if(!state.compareFriend){
-      return friendChips() + '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">Pick a friend above to see their tiers.</div>';
+      return friendPicker() + '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">Pick a friend above to see their tiers.</div>';
     }
     if(state.compareGenres.length === 0){
-      return friendChips() + '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">' + esc(state.compareFriend) + " hasn't added or ranked anything yet.</div>";
+      return friendPicker() + '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">' + esc(state.compareFriend) + " hasn't added or ranked anything yet.</div>";
     }
 
     var showsInGenre = state.shows.filter(function(s){
       return s.genre === state.compareGenre && (s.addedBy === state.compareFriend || state.friendRanking[s.id]);
     });
-    var body = friendChips();
+    var body = friendPicker();
     body += genreChips(state.compareGenres, state.compareGenre, 'setcomparegenre', false, compareGenreCount);
     if(showsInGenre.length === 0){
       body += '<div style="padding:40px 24px;text-align:center;color:var(--text-muted);font-size:13px;">No ' + esc(state.compareGenre) + ' shows here yet.</div>';
