@@ -213,6 +213,14 @@
   async function claimUser(name){
     name = name.trim();
     if(!name || !isValidName(name)) return;
+    try{
+      var check = await sb.from('users').select('name,pin').eq('name', name).maybeSingle();
+      if(check.data && check.data.pin){
+        var entered = prompt('"' + name + '" is locked with a PIN. Enter it to continue:');
+        if(entered === null) return;
+        if(entered.trim() !== check.data.pin){ alert('Wrong PIN.'); return; }
+      }
+    }catch(e){}
     localStorage.setItem('tw_username', name);
     state.user = name;
     try{ await sb.from('users').upsert({name: name}); }catch(e){}
@@ -279,6 +287,37 @@
     var newName = prompt('Enter a new name', state.user);
     if(newName === null) return;
     renameSelf(newName);
+  }
+
+  function setPinPrompt(){
+    var pin = prompt('Set a PIN (4-8 digits) to lock your name so only you can use it. Leave blank to remove your PIN.', '');
+    if(pin === null) return;
+    pin = pin.trim();
+    if(pin && !/^[0-9]{4,8}$/.test(pin)){ alert('PIN must be 4 to 8 digits, numbers only.'); return; }
+    savePin(pin || null);
+  }
+
+  async function savePin(pin){
+    try{
+      var res = await sb.from('users').update({pin: pin}).eq('name', state.user);
+      if(res.error){ alert("Couldn't save (" + res.error.message + ")."); return; }
+      alert(pin ? 'PIN set. Anyone using your name will need it from now on.' : 'PIN removed.');
+      state.profileSheetOpen = false;
+      render();
+    }catch(e){
+      alert("Couldn't save. Check your connection and try again.");
+    }
+  }
+
+  async function clearPersonPin(username){
+    if(!confirm("Clear " + username + "'s PIN? They'll be able to set a new one themselves.")) return;
+    try{
+      var res = await sb.from('users').update({pin: null}).eq('name', username);
+      if(res.error){ alert("Couldn't clear PIN (" + res.error.message + ")."); return; }
+      alert('PIN cleared for ' + username + '.');
+    }catch(e){
+      alert("Couldn't clear PIN. Check your connection and try again.");
+    }
   }
 
   function switchUser(){
@@ -564,7 +603,10 @@
       var isSelf = u === state.user;
       var actionBtn = isSelf
         ? '<span style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">YOU</span>'
-        : '<button data-action="removeperson" data-username="' + esc(u) + '" style="background:none;border:none;color:var(--rose);font-size:13px;font-weight:500;">Remove</button>';
+        : '<div style="display:flex;gap:12px;">' +
+            '<button data-action="clearpin" data-username="' + esc(u) + '" style="background:none;border:none;color:var(--text-muted);font-size:13px;font-weight:500;">Clear PIN</button>' +
+            '<button data-action="removeperson" data-username="' + esc(u) + '" style="background:none;border:none;color:var(--rose);font-size:13px;font-weight:500;">Remove</button>' +
+          '</div>';
       return '<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--border);">' +
           '<div style="font-size:14px;">' + esc(u) + '</div>' +
           actionBtn +
@@ -802,6 +844,7 @@
     var swapSvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3l4 4-4 4"/><path d="M21 7H9"/><path d="M7 21l-4-4 4-4"/><path d="M3 17h12"/></svg>';
     var peopleSvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M2 20c0-3 3-5 7-5s7 2 7 5"/><circle cx="18" cy="9" r="2.2"/><path d="M15.5 20c.3-2.2 2-3.8 4.5-4"/></svg>';
     var editSvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+    var lockSvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>';
     return '<div data-action="closeprofile" style="position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;z-index:6;">' +
         '<div data-action="stop" style="background:var(--surface);width:100%;max-width:480px;margin:0 auto;border-radius:16px 16px 0 0;padding:20px 16px calc(22px + env(safe-area-inset-bottom));border-top:1px solid var(--border);">' +
           '<div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px;"></div>' +
@@ -812,6 +855,7 @@
           '<input type="file" id="tw-avatar-input" data-action="avatarfile" accept="image/*" style="display:none;" />' +
           '<button data-action="pickphoto" style="display:flex;align-items:center;gap:10px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px;color:var(--text);font-size:14px;font-weight:500;">' + cameraSvg + '<span>Change photo</span></button>' +
           '<button data-action="changename" style="display:flex;align-items:center;gap:10px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px;color:var(--text);font-size:14px;font-weight:500;">' + editSvg + '<span>Change name</span></button>' +
+          '<button data-action="setpin" style="display:flex;align-items:center;gap:10px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px;color:var(--text);font-size:14px;font-weight:500;">' + lockSvg + '<span>Lock my name with a PIN</span></button>' +
           (state.user === OWNER_USERNAME ? '<button data-action="openpeople" style="display:flex;align-items:center;gap:10px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px;color:var(--text);font-size:14px;font-weight:500;">' + peopleSvg + '<span>Manage people</span></button>' : '') +
           '<button data-action="switchuser" style="display:flex;align-items:center;gap:10px;width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--text);font-size:14px;font-weight:500;">' + swapSvg + '<span>Switch user</span></button>' +
         '</div>' +
@@ -1136,6 +1180,8 @@
     else if(action === 'closeprofile'){ closeProfile(); }
     else if(action === 'pickphoto'){ pickPhoto(); }
     else if(action === 'changename'){ changeNamePrompt(); }
+    else if(action === 'setpin'){ setPinPrompt(); }
+    else if(action === 'clearpin'){ clearPersonPin(el.getAttribute('data-username')); }
     else if(action === 'deleteshow'){ deleteShow(el.getAttribute('data-showid')); }
     else if(action === 'editshow'){ editShow(el.getAttribute('data-showid')); }
     else if(action === 'shareapp'){ shareApp(); }
